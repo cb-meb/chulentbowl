@@ -48,6 +48,31 @@ h3{font-size:1rem;padding:14px 16px 0}
 .rk{color:var(--muted);display:inline-block;min-width:1.6em}
 .pos{color:var(--accent);font-weight:600}.neg{color:#b23b3b;font-weight:600}
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .neg{color:#ff8f8f}}
+.chartwrap{border-top:1px solid var(--line);border-bottom:1px solid var(--line);background:var(--surface);padding:10px 12px;margin-top:14px}
+@media (min-width:1200px){.grid .chartwrap{border:1px solid var(--line)}}
+.chartwrap svg{width:100%;height:auto;display:block}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.chip{all:unset;cursor:pointer;display:inline-flex;align-items:center;gap:6px;padding:4px 9px;border:1px solid var(--line);border-radius:999px;font-size:.8rem}
+.chip i{width:10px;height:10px;border-radius:50%;display:inline-block}
+.chip.on{border-color:var(--ink);font-weight:600}
+.chip.dim{opacity:.4}
+.chip:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.line{fill:none;stroke-width:2.5;stroke-linejoin:round;stroke-linecap:round;cursor:pointer}
+.line.dim,.dot.dim{opacity:.15}
+.line.hi{stroke-width:4.5}
+.axis{fill:var(--muted);font-size:11px}
+.gl{stroke:var(--line);stroke-width:1}
+
+:root{--byec:#3f7fd1;--poc:#2f9e6b}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--byec:#5aa0f0;--poc:#4cc38a}}
+tbody.teams tr td.bye{background:color-mix(in srgb,var(--byec) calc(var(--a,0)*100%),var(--surface))}
+tbody.teams tr td.po{background:color-mix(in srgb,var(--poc) calc(var(--a,0)*100%),var(--surface))}
+tbody.teams tr:nth-child(even) td.bye{background:color-mix(in srgb,var(--byec) calc(var(--a,0)*100%),var(--band))}
+tbody.teams tr:nth-child(even) td.po{background:color-mix(in srgb,var(--poc) calc(var(--a,0)*100%),var(--band))}
+.std thead th.bye{box-shadow:inset 0 -4px 0 var(--byec)}
+.std thead th.po{box-shadow:inset 0 -4px 0 var(--poc)}
+.key{display:inline-flex;align-items:center;gap:6px;margin-right:14px}
+#odds .chartwrap{margin-top:0}
 td.sep,th.sep{border-left:2px solid var(--line)}
 tbody.league td{background:var(--summary);font-weight:600}
 tbody.league td:first-child{background:var(--summary)}
@@ -71,6 +96,23 @@ tbody.league tr:first-child td{border-top:2px solid var(--accent)}
     <div><h3>Head-to-head standings</h3><div id="h2h"></div></div>
   </div>
   <p class="note">Standings diff: spots higher (+) or lower (&minus;) than the team sits in the official standings. Leadership: wins minus all-play wins (official wins are halved first). Positive means more wins than scoring predicts.</p>
+</section>
+<section id="power" hidden>
+  <h2>Power rankings</h2>
+  <div class="grid">
+    <div><h3>Rankings through the selected week</h3><div id="powerTable"></div></div>
+    <div><h3>Power rank by week</h3><div class="chartwrap" id="chartBox" hidden></div></div>
+  </div>
+  <p class="note">Power score (out of 100) is 50% all-play win %, 30% average score over the last 3 weeks, and 20% official win % (bonus wins included). Each component is scaled from the league's lowest to highest before weighting. Change is spots gained (+) or lost (&minus;) since the previous week. Tap a line or team to highlight it.</p>
+</section>
+<section id="odds" hidden>
+  <h2>Playoff odds</h2>
+  <h3>Chance of finishing in each place</h3>
+  <p class="note" id="oddsKey"></p>
+  <div id="oddsTable"></div>
+  <h3>Odds of making the playoffs, week by week</h3>
+  <div class="chartwrap" id="oddsChart" hidden></div>
+  <p class="note">Odds come from 10,000 simulated seasons run after each week. Each simulation plays out the rest of the real schedule using every team's scoring average and spread (blended with the league's early in the season) and awards bonus wins to each week's top 5 scorers. Places are in the official standings, with points for as the tiebreaker.</p>
 </section>
 <p class="note" id="updated"></p>
 
@@ -165,6 +207,8 @@ tbody.league tr:first-child td{border-top:2px solid var(--accent)}
     out.innerHTML = h;
     document.getElementById('legend').hidden = false;
     buildStandings(weeks);
+    buildPower(weeks);
+    buildOdds(weeks);
     Array.prototype.forEach.call(out.querySelectorAll('th button'), function(b){
       b.addEventListener('click', function(){
         var k = b.getAttribute('data-key');
@@ -187,32 +231,7 @@ tbody.league tr:first-child td{border-top:2px solid var(--accent)}
         '<p class="empty">Matchup data is missing. Run the "Update league data" workflow again.</p>';
       return;
     }
-    var T = {};
-    data.teams.forEach(function(t){ T[t.id] = {name:t.name,hw:0,hl:0,ht:0,bw:0,bl:0,pf:0,pa:0,ap:0}; });
-    weeks.forEach(function(w){
-      var vals = ids.map(function(id){return w.scores[id];}).filter(function(v){return v!==undefined&&v!==null;})
-        .sort(function(a,b){return b-a;});
-      var n = vals.length; if(!n) return;
-      var cut = vals[Math.min(4,n-1)];
-      ids.forEach(function(id){
-        var s = w.scores[id]; if(s===undefined||s===null) return;
-        var t = T[id]; t.pf += s;
-        if (s >= cut) t.bw++; else t.bl++;
-        var lo = 0;
-        ids.forEach(function(o){
-          if (o===id) return; var os = w.scores[o];
-          if (os===undefined||os===null) return;
-          if (s>os) lo += 1; else if (s===os) lo += 0.5;
-        });
-        t.ap += n>1 ? lo/(n-1) : 0;
-      });
-      (w.matchups||[]).forEach(function(m){
-        var a=String(m[0]), b=String(m[1]), sa=w.scores[a], sb=w.scores[b];
-        if (sa===undefined||sb===undefined) return;
-        T[a].pa += sb; T[b].pa += sa;
-        if (sa>sb){T[a].hw++;T[b].hl++;} else if (sa<sb){T[b].hw++;T[a].hl++;} else {T[a].ht++;T[b].ht++;}
-      });
-    });
+    var T = accumulate(weeks);
     var list = ids.map(function(id){return T[id];});
     function order(key){
       var arr = list.slice().sort(function(x,y){
@@ -256,6 +275,199 @@ tbody.league tr:first-child td{border-top:2px solid var(--accent)}
       extra:{h:'Standings diff',f:function(t){var d=t.ro-t.rh; return '<td class="'+cls(d)+'">'+(d===0?'0':sgn(d,0))+'</td>';}}
     }, function(t){ return h2hKey(t) - t.ap; }));
     box.hidden = false;
+  }
+
+  function accumulate(weeks){
+    var ids = data.teams.map(function(t){return String(t.id);});
+    var T = {};
+    data.teams.forEach(function(t){ T[t.id] = {name:t.name,hw:0,hl:0,ht:0,bw:0,bl:0,pf:0,pa:0,ap:0,n:0,sc:[]}; });
+    weeks.forEach(function(w){
+      var vals = ids.map(function(id){return w.scores[id];}).filter(function(v){return v!==undefined&&v!==null;})
+        .sort(function(a,b){return b-a;});
+      var n = vals.length; if(!n) return;
+      var cut = vals[Math.min(4,n-1)];
+      ids.forEach(function(id){
+        var s = w.scores[id]; if(s===undefined||s===null) return;
+        var t = T[id]; t.pf += s; t.n++; t.sc.push(s);
+        if (s >= cut) t.bw++; else t.bl++;
+        var lo = 0;
+        ids.forEach(function(o){
+          if (o===id) return; var os = w.scores[o];
+          if (os===undefined||os===null) return;
+          if (s>os) lo += 1; else if (s===os) lo += 0.5;
+        });
+        t.ap += n>1 ? lo/(n-1) : 0;
+      });
+      (w.matchups||[]).forEach(function(m){
+        var a=String(m[0]), b=String(m[1]), sa=w.scores[a], sb=w.scores[b];
+        if (sa===undefined||sb===undefined) return;
+        T[a].pa += sb; T[b].pa += sa;
+        if (sa>sb){T[a].hw++;T[b].hl++;} else if (sa<sb){T[b].hw++;T[a].hl++;} else {T[a].ht++;T[b].ht++;}
+      });
+    });
+    return T;
+  }
+
+  var hiTeam = null;
+  function buildPower(weeks){
+    var box = document.getElementById('power');
+    var ids = data.teams.map(function(t){return String(t.id);});
+    var k = weeks.length, N = ids.length;
+    if (!weeks.some(function(w){return w.matchups;})){ box.hidden = true; return; }
+
+    function rankAt(j){
+      var T = accumulate(weeks.slice(0,j));
+      var arr = ids.map(function(id){
+        var t = T[id]; t.id = id;
+        var g = t.hw+t.hl+t.ht+t.bw+t.bl;
+        t.apPct = t.n ? t.ap/t.n : 0;
+        var l3 = t.sc.slice(-3); t.l3 = l3.length ? mean(l3) : 0;
+        t.wp = g ? (t.hw+t.bw+t.ht/2)/g : 0;
+        return t;
+      });
+      ['apPct','l3','wp'].forEach(function(key){
+        var vs = arr.map(function(t){return t[key];});
+        var lo = Math.min.apply(null,vs), hi = Math.max.apply(null,vs);
+        arr.forEach(function(t){ t['s_'+key] = hi>lo ? (t[key]-lo)/(hi-lo) : 0.5; });
+      });
+      arr.forEach(function(t){ t.power = 100*(0.5*t.s_apPct + 0.3*t.s_l3 + 0.2*t.s_wp); });
+      arr.sort(function(x,y){ return (y.power-x.power) || (y.pf-x.pf) || x.name.localeCompare(y.name); });
+      arr.forEach(function(t,i){ t.rank = i+1; });
+      return arr;
+    }
+    var hist = [];
+    for (var j=1; j<=k; j++) hist.push(rankAt(j));
+    var cur = hist[k-1];
+    var prevRank = {};
+    if (k>1) hist[k-2].forEach(function(t){ prevRank[t.id] = t.rank; });
+
+    var h = '<div class="wrap"><table class="std"><thead><tr><th>Team</th><th>Power score</th><th>All-play %</th><th>Last 3 avg</th><th>Win %</th><th>Change</th></tr></thead><tbody class="teams">';
+    cur.forEach(function(t){
+      var ch = '<td>\u2013</td>';
+      if (k>1){ var d = prevRank[t.id]-t.rank; ch = '<td class="'+cls(d)+'">'+(d===0?'0':sgn(d,0))+'</td>'; }
+      h += '<tr><td title="'+esc(t.name)+'"><span class="rk">'+t.rank+'</span>'+esc(t.name)+'</td>'
+        + '<td><b>'+t.power.toFixed(1)+'</b></td><td>'+(t.apPct*100).toFixed(1)+'%</td><td>'+fmt(t.l3)+'</td><td>'+(t.wp*100).toFixed(1)+'%</td>'+ch+'</tr>';
+    });
+    document.getElementById('powerTable').innerHTML = h + '</tbody></table></div>';
+
+    var cb = document.getElementById('chartBox');
+    if (k < 2){ cb.hidden = true; cb.innerHTML = ''; box.hidden = false; return; }
+    var W=600, H=380, L=30, R=16, Tp=14, B=28;
+    function X(i){ return L + (W-L-R)*i/(k-1); }
+    function Y(r){ return Tp + (H-Tp-B)*(r-1)/Math.max(N-1,1); }
+    function color(id){ return 'hsl('+Math.round(ids.indexOf(id)*360/N)+',65%,52%)'; }
+    var svg = '<svg viewBox="0 0 '+W+' '+H+'" role="img" aria-label="Power rank by week, one line per team">';
+    for (var r=1; r<=N; r++){
+      svg += '<line class="gl" x1="'+L+'" x2="'+(W-R)+'" y1="'+Y(r)+'" y2="'+Y(r)+'"/><text class="axis" x="'+(L-8)+'" y="'+(Y(r)+4)+'" text-anchor="end">'+r+'</text>';
+    }
+    for (var i=0; i<k; i++) svg += '<text class="axis" x="'+X(i)+'" y="'+(H-8)+'" text-anchor="middle">W'+weeks[i].week+'</text>';
+    cur.forEach(function(t){
+      var pts = hist.map(function(arr,i){
+        var rk = 0; arr.forEach(function(x){ if (x.id===t.id) rk = x.rank; });
+        return [X(i), Y(rk)];
+      });
+      var c = color(t.id);
+      svg += '<polyline class="line" data-t="'+t.id+'" style="stroke:'+c+'" points="'+pts.map(function(p){return p[0].toFixed(1)+','+p[1].toFixed(1);}).join(' ')+'"><title>'+esc(t.name)+'</title></polyline>';
+      pts.forEach(function(p){ svg += '<circle class="dot" data-t="'+t.id+'" cx="'+p[0].toFixed(1)+'" cy="'+p[1].toFixed(1)+'" r="3" style="fill:'+c+'"/>'; });
+    });
+    svg += '</svg>';
+    var chips = '<div class="chips">';
+    cur.forEach(function(t){
+      chips += '<button class="chip" data-t="'+t.id+'"><i style="background:'+color(t.id)+'"></i>'+esc(t.name)+'</button>';
+    });
+    cb.innerHTML = svg + chips + '</div>';
+    cb.hidden = false;
+    function applyHi(){
+      Array.prototype.forEach.call(cb.querySelectorAll('[data-t]'), function(e){
+        var on = hiTeam === e.getAttribute('data-t');
+        e.classList.toggle('dim', hiTeam !== null && !on);
+        e.classList.toggle('hi', on && e.classList.contains('line'));
+        e.classList.toggle('on', on && e.classList.contains('chip'));
+      });
+    }
+    Array.prototype.forEach.call(cb.querySelectorAll('.line,.chip'), function(e){
+      e.addEventListener('click', function(){
+        var id = e.getAttribute('data-t');
+        hiTeam = (hiTeam === id) ? null : id; applyHi();
+      });
+    });
+    applyHi();
+    box.hidden = false;
+  }
+
+  var hiOdds = null;
+  function pct(v){ return v >= 0.0005 ? (v*100).toFixed(1)+'%' : (v > 0 ? '<0.1%' : '\u2013'); }
+  function buildOdds(weeks){
+    var box = document.getElementById('odds');
+    var tbl = document.getElementById('oddsTable'), cb = document.getElementById('oddsChart');
+    var PO = data.playoffTeams || 6, BY = data.byes || 2, N = data.teams.length;
+    var byWeek = {};
+    (data.odds || []).forEach(function(o){ byWeek[o.week] = o.p; });
+    var thru = weeks[weeks.length-1].week, cur = byWeek[thru];
+    box.hidden = false;
+    document.getElementById('oddsKey').innerHTML =
+      '<span class="key"><span class="swatch" style="background:var(--byec)"></span>Bye (places 1\u2013'+BY+')</span>'+
+      '<span class="key"><span class="swatch" style="background:var(--poc)"></span>Playoffs (places '+(BY+1)+'\u2013'+PO+')</span>';
+    if (!cur){
+      tbl.innerHTML = '<p class="empty">Playoff odds are not available yet. Run the "Update league data" workflow again.</p>';
+      cb.hidden = true; return;
+    }
+    function sumTo(p, n){ var t = 0; for (var i=0; i<n; i++) t += p[i] || 0; return t; }
+    var rows = data.teams.map(function(t){
+      var p = cur[t.id] || [];
+      return {id:t.id, name:t.name, p:p, po:sumTo(p,PO), bye:sumTo(p,BY)};
+    }).sort(function(a,b){ return (b.po-a.po) || (b.bye-a.bye) || a.name.localeCompare(b.name); });
+    function grp(i){ return i < BY ? 'bye' : (i < PO ? 'po' : ''); }
+    var h = '<div class="wrap"><table class="std"><thead><tr><th>Team</th>';
+    for (var i=0; i<N; i++) h += '<th class="'+grp(i)+'" title="Finish in place '+(i+1)+'">'+(i+1)+'</th>';
+    h += '<th class="sep">Make playoffs</th></tr></thead><tbody class="teams">';
+    rows.forEach(function(r){
+      h += '<tr><td title="'+esc(r.name)+'">'+esc(r.name)+'</td>';
+      for (var i=0; i<N; i++){
+        var v = r.p[i] || 0, g = grp(i);
+        h += '<td class="'+g+'"'+(g && v>0 ? ' style="--a:'+(0.08+0.62*v).toFixed(3)+'"' : '')+'>'+pct(v)+'</td>';
+      }
+      h += '<td class="sep"><b>'+pct(r.po)+'</b></td></tr>';
+    });
+    tbl.innerHTML = h + '</tbody></table></div>';
+
+    var pts = weeks.filter(function(w){ return byWeek[w.week]; });
+    var k = pts.length;
+    if (k < 2){ cb.hidden = true; cb.innerHTML = ''; return; }
+    var W=600, H=380, L=40, R=16, Tp=14, B=28;
+    function X(i){ return L + (W-L-R)*i/(k-1); }
+    function Y(v){ return Tp + (H-Tp-B)*(1-v); }
+    function color(id){ return 'hsl('+Math.round(data.teams.findIndex(function(t){return String(t.id)===id;})*360/N)+',65%,52%)'; }
+    var svg = '<svg viewBox="0 0 '+W+' '+H+'" role="img" aria-label="Playoff odds by week, one line per team">';
+    [0,0.25,0.5,0.75,1].forEach(function(v){
+      svg += '<line class="gl" x1="'+L+'" x2="'+(W-R)+'" y1="'+Y(v)+'" y2="'+Y(v)+'"/><text class="axis" x="'+(L-8)+'" y="'+(Y(v)+4)+'" text-anchor="end">'+Math.round(v*100)+'%</text>';
+    });
+    pts.forEach(function(w,i){ svg += '<text class="axis" x="'+X(i)+'" y="'+(H-8)+'" text-anchor="middle">W'+w.week+'</text>'; });
+    rows.forEach(function(r){
+      var xy = pts.map(function(w,i){ return [X(i), Y(sumTo(byWeek[w.week][r.id] || [], PO))]; });
+      var c = color(r.id);
+      svg += '<polyline class="line" data-t="'+r.id+'" style="stroke:'+c+'" points="'+xy.map(function(p){return p[0].toFixed(1)+','+p[1].toFixed(1);}).join(' ')+'"><title>'+esc(r.name)+'</title></polyline>';
+      xy.forEach(function(p){ svg += '<circle class="dot" data-t="'+r.id+'" cx="'+p[0].toFixed(1)+'" cy="'+p[1].toFixed(1)+'" r="3" style="fill:'+c+'"/>'; });
+    });
+    svg += '</svg><div class="chips">';
+    rows.forEach(function(r){ svg += '<button class="chip" data-t="'+r.id+'"><i style="background:'+color(r.id)+'"></i>'+esc(r.name)+'</button>'; });
+    cb.innerHTML = svg + '</div>';
+    cb.hidden = false;
+    function applyHi(){
+      Array.prototype.forEach.call(cb.querySelectorAll('[data-t]'), function(e){
+        var on = hiOdds === e.getAttribute('data-t');
+        e.classList.toggle('dim', hiOdds !== null && !on);
+        e.classList.toggle('hi', on && e.classList.contains('line'));
+        e.classList.toggle('on', on && e.classList.contains('chip'));
+      });
+    }
+    Array.prototype.forEach.call(cb.querySelectorAll('.line,.chip'), function(e){
+      e.addEventListener('click', function(){
+        var id = e.getAttribute('data-t');
+        hiOdds = (hiOdds === id) ? null : id; applyHi();
+      });
+    });
+    applyHi();
   }
 
   function init(){
