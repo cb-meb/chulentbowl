@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fantasy League Stats</title>
+<style>
+:root{
+  --bg:#f5f6f2; --surface:#ffffff; --ink:#1b2a22; --muted:#5d6b63; --line:#d9ddd4;
+  --accent:#1f5f46; --band:#eef1ea; --summary:#e4eadf; --head:#1f3a2e; --headink:#f5f6f2;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0f1713; --surface:#16211b; --ink:#e8eee9; --muted:#9aa9a0; --line:#2b3a31;
+    --accent:#7fd1a6; --band:#1a271f; --summary:#22332a; --head:#0b110e; --headink:#e8eee9;
+  }
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font:15px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;padding:16px 0 32px}
+header,.note{padding:0 16px}
+h1{font-size:1.4rem;margin:0 0 2px}
+.sub{color:var(--muted);margin:0 0 14px}
+label{font-weight:600;margin-right:8px}
+select{font:inherit;padding:8px 10px;border:1px solid var(--line);border-radius:6px;background:var(--surface);color:var(--ink)}
+select:focus-visible,th button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.note{color:var(--muted);font-size:.85rem;margin-top:10px}
+.wrap{overflow-x:auto;margin-top:14px;border-top:1px solid var(--line);border-bottom:1px solid var(--line);background:var(--surface)}
+table{border-collapse:separate;border-spacing:0;width:100%;font-variant-numeric:tabular-nums;white-space:nowrap}
+th,td{padding:9px 12px;text-align:right;border-bottom:1px solid var(--line)}
+th:first-child,td:first-child{text-align:left;position:sticky;left:0;z-index:1;background:var(--surface);border-right:1px solid var(--line);min-width:130px;max-width:170px;overflow:hidden;text-overflow:ellipsis}
+thead th{background:var(--head);color:var(--headink);position:sticky;top:0;z-index:2;padding:0}
+thead th:first-child{z-index:3;background:var(--head)}
+th button{all:unset;cursor:pointer;display:block;width:100%;padding:10px 12px;font-weight:600;box-sizing:border-box}
+th:first-child button{text-align:left}
+th button .arr{display:inline-block;width:1em;color:var(--headink);opacity:.9}
+tbody.teams tr:nth-child(even) td{background:var(--band)}
+tbody.teams tr:nth-child(even) td:first-child{background:var(--band)}
+td.sep,th.sep{border-left:2px solid var(--line)}
+tbody.league td{background:var(--summary);font-weight:600}
+tbody.league td:first-child{background:var(--summary)}
+tbody.league tr:first-child td{border-top:2px solid var(--accent)}
+.empty{padding:24px 16px;color:var(--muted)}
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title">Fantasy League Stats</h1>
+  <p class="sub" id="sub"></p>
+  <label for="week">Through week</label>
+  <select id="week" aria-label="Select week"></select>
+</header>
+<div id="out"></div>
+<p class="note" id="updated"></p>
+
+<script>
+(function(){
+  var out = document.getElementById('out');
+  var sel = document.getElementById('week');
+  var data, sortKey = 'name', sortDir = 1, through = 0;
+
+  function fmt(v){ return (v === null || v === undefined || isNaN(v)) ? '' : v.toFixed(2); }
+  function mean(a){ return a.reduce(function(s,x){return s+x;},0)/a.length; }
+  function sd(a){
+    if (a.length < 2) return null;
+    var m = mean(a);
+    return Math.sqrt(a.reduce(function(s,x){return s+(x-m)*(x-m);},0)/(a.length-1));
+  }
+  function median(a){
+    var s = a.slice().sort(function(x,y){return x-y;}), n = s.length;
+    if (!n) return null;
+    return n%2 ? s[(n-1)/2] : (s[n/2-1]+s[n/2])/2;
+  }
+  function esc(s){ return String(s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
+
+  function build(){
+    var weeks = data.weeks.filter(function(w){return w.week <= through;});
+    var rows = data.teams.map(function(t){
+      var sc = weeks.map(function(w){
+        var v = w.scores[t.id]; return (v === undefined) ? null : v;
+      });
+      var played = sc.filter(function(v){return v !== null;});
+      return {
+        name: t.name, scores: sc,
+        avg: played.length ? mean(played) : null,
+        sd: sd(played),
+        min: played.length ? Math.min.apply(null, played) : null,
+        max: played.length ? Math.max.apply(null, played) : null
+      };
+    });
+
+    rows.sort(function(a,b){
+      var x, y;
+      if (sortKey === 'name'){ return sortDir * a.name.localeCompare(b.name, undefined, {sensitivity:'base'}); }
+      if (sortKey.charAt(0) === 'w'){ var i = +sortKey.slice(1) - 1; x = a.scores[i]; y = b.scores[i]; }
+      else { x = a[sortKey]; y = b[sortKey]; }
+      if (x === null || x === undefined) return 1;
+      if (y === null || y === undefined) return -1;
+      return sortDir * (x - y);
+    });
+
+    function th(key, label, cls){
+      var arr = sortKey === key ? (sortDir === 1 ? '▲' : '▼') : '';
+      var aria = sortKey === key ? (sortDir === 1 ? 'ascending' : 'descending') : 'none';
+      return '<th class="'+(cls||'')+'" aria-sort="'+aria+'"><button data-key="'+key+'">'+label+' <span class="arr">'+arr+'</span></button></th>';
+    }
+
+    var h = '<div class="wrap"><table><thead><tr>' + th('name','Team');
+    weeks.forEach(function(w){ h += th('w'+w.week, 'W'+w.week); });
+    h += th('avg','Avg','sep') + th('sd','Std dev') + th('min','Min') + th('max','Max') + '</tr></thead><tbody class="teams">';
+    rows.forEach(function(r){
+      h += '<tr><td title="'+esc(r.name)+'">'+esc(r.name)+'</td>';
+      r.scores.forEach(function(v){ h += '<td>'+fmt(v)+'</td>'; });
+      h += '<td class="sep">'+fmt(r.avg)+'</td><td>'+fmt(r.sd)+'</td><td>'+fmt(r.min)+'</td><td>'+fmt(r.max)+'</td></tr>';
+    });
+    h += '</tbody><tbody class="league">';
+    var stats = [
+      ['League min', function(a){return Math.min.apply(null,a);}],
+      ['League max', function(a){return Math.max.apply(null,a);}],
+      ['League median', median],
+      ['League average', mean],
+      ['League std dev', sd]
+    ];
+    stats.forEach(function(s){
+      h += '<tr><td>'+s[0]+'</td>';
+      weeks.forEach(function(w){
+        var vals = data.teams.map(function(t){return w.scores[t.id];}).filter(function(v){return v !== undefined && v !== null;});
+        h += '<td>'+(vals.length ? fmt(s[1](vals)) : '')+'</td>';
+      });
+      h += '<td class="sep"></td><td></td><td></td><td></td></tr>';
+    });
+    h += '</tbody></table></div>';
+    out.innerHTML = h;
+    Array.prototype.forEach.call(out.querySelectorAll('th button'), function(b){
+      b.addEventListener('click', function(){
+        var k = b.getAttribute('data-key');
+        if (sortKey === k){ sortDir = -sortDir; }
+        else { sortKey = k; sortDir = (k === 'name') ? 1 : -1; }
+        build();
+      });
+    });
+  }
+
+  function init(){
+    document.getElementById('title').textContent = data.leagueName || 'Fantasy League Stats';
+    document.title = data.leagueName || 'Fantasy League Stats';
+    document.getElementById('sub').textContent = data.season + ' season';
+    if (data.updated){
+      document.getElementById('updated').textContent = 'Data updated ' + new Date(data.updated).toLocaleString();
+    }
+    if (!data.weeks || !data.weeks.length){
+      out.innerHTML = '<p class="empty">No weeks have been completed yet. Check back after the first week of games.</p>';
+      sel.disabled = true; return;
+    }
+    data.weeks.forEach(function(w){
+      var o = document.createElement('option');
+      o.value = w.week; o.textContent = 'Week ' + w.week;
+      sel.appendChild(o);
+    });
+    through = data.weeks[data.weeks.length-1].week;
+    sel.value = through;
+    sel.addEventListener('change', function(){ through = +sel.value; build(); });
+    build();
+  }
+
+  fetch('data.json', {cache:'no-cache'})
+    .then(function(r){ if(!r.ok) throw new Error(r.status); return r.json(); })
+    .then(function(d){ data = d; init(); })
+    .catch(function(){
+      out.innerHTML = '<p class="empty">Could not load data.json. Run the "Update league data" workflow in GitHub Actions to create it.</p>';
+      sel.disabled = true;
+    });
+})();
+</script>
+</body>
+</html>
