@@ -15,6 +15,7 @@
     --accent:#7fd1a6; --bonus:#6b5a12; --bonusink:#fff3c4; --band:#1a271f; --summary:#22332a; --head:#0b110e; --headink:#e8eee9;
   }
 }
+a{color:var(--accent)}
 *{box-sizing:border-box}
 html,body{margin:0}
 body{background:var(--bg);color:var(--ink);font:15px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;padding:16px 0 32px}
@@ -84,6 +85,7 @@ tbody.league tr:first-child td{border-top:2px solid var(--accent)}
 <header>
   <h1 id="title">Fantasy League Stats</h1>
   <p class="sub" id="sub"></p>
+  <p class="sub"><a href="live.html">Live leaderboard &rarr;</a></p>
   <label for="week">Through week</label>
   <select id="week" aria-label="Select week"></select>
 </header>
